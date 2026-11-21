@@ -183,11 +183,17 @@ def evaluate_validation_split(
             with torch.no_grad():
                 if amp_enabled:
                     with torch.amp.autocast("cuda"):
-                        outputs = model(images_dev)
-                        loss_dict = criterion(outputs, labels_dev)
+                        raw_outputs = model(images_dev)
                 else:
-                    outputs = model(images_dev)
-                    loss_dict = criterion(outputs, labels_dev)
+                    raw_outputs = model(images_dev)
+
+                # Cast all floating-point tensors in outputs to float32 outside autocast before
+                # computing validation losses or open-set uncertainty U(x)
+                outputs = {
+                    k: (v.float() if (isinstance(v, torch.Tensor) and v.is_floating_point()) else v)
+                    for k, v in raw_outputs.items()
+                }
+                loss_dict = criterion(outputs, labels_dev)
 
             total_loss_sum += float(loss_dict["loss_total"].item())
             cls_loss_sum += float(loss_dict["loss_cls"].item())
@@ -198,13 +204,13 @@ def evaluate_validation_split(
             scores_np = outputs["evidence_fake"].detach().cpu().float().numpy().reshape(-1)
 
             cached_batch = {
-                "embeddings": outputs["embeddings"].detach().cpu(),
-                "probs": outputs["probs"].detach().cpu(),
-                "d_real": outputs["d_real"].detach().cpu(),
-                "d_fake": outputs["d_fake"].detach().cpu(),
-                "p_real_norm": outputs["p_real_norm"].detach().cpu(),
-                "p_fake_norm": outputs["p_fake_norm"].detach().cpu(),
-                "evidence_fake": outputs["evidence_fake"].detach().cpu(),
+                "embeddings": outputs["embeddings"].detach().cpu().float(),
+                "probs": outputs["probs"].detach().cpu().float(),
+                "d_real": outputs["d_real"].detach().cpu().float(),
+                "d_fake": outputs["d_fake"].detach().cpu().float(),
+                "p_real_norm": outputs["p_real_norm"].detach().cpu().float(),
+                "p_fake_norm": outputs["p_fake_norm"].detach().cpu().float(),
+                "evidence_fake": outputs["evidence_fake"].detach().cpu().float(),
                 "label": labels_dev.detach().cpu(),
                 "split": "val",
             }

@@ -151,6 +151,23 @@ def set_model_state(model: ZeroFakeNet, state: Dict[str, Any]) -> None:
         model.prototype_layer.fake_prototypes = np.asarray(state["fake_prototypes"], dtype=np.float32).copy()
 
 
+def cast_outputs_to_float32(outputs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Casts all floating-point PyTorch tensors in `outputs` to `float32` (`.float()`) outside the
+    `autocast` block so loss functions (`L_cls`, `L_con`, `L_proto`) and open-set uncertainty `U(x)`
+    never encounter `c10::Half` overflow.
+    """
+    if not HAS_TORCH:
+        return outputs
+    casted: Dict[str, Any] = {}
+    for k, v in outputs.items():
+        if isinstance(v, torch.Tensor) and v.is_floating_point():
+            casted[k] = v.float()
+        else:
+            casted[k] = v
+    return casted
+
+
 def train_one_epoch(
     model: ZeroFakeNet,
     train_loader: Iterable,
@@ -164,6 +181,8 @@ def train_one_epoch(
     """
     Runs one full training epoch using PyTorch Automatic Mixed Precision (`torch.amp.autocast('cuda')`
     and `torch.amp.GradScaler('cuda')`) on CUDA GPUs, with automatic fallback to `fp32` on CPU.
+    Only the model forward pass runs inside `autocast`; all outputs are cast to `float32` before
+    computing `criterion(outputs, labels_dev)` outside the `autocast` block.
     """
     if HAS_TORCH and hasattr(model, "train"):
         model.train()
@@ -191,14 +210,16 @@ def train_one_epoch(
 
             if amp_enabled and scaler is not None:
                 with torch.amp.autocast("cuda"):
-                    outputs = model(images_dev)
-                    loss_dict = criterion(outputs, labels_dev)
-                    loss_total = loss_dict["loss_total"]
+                    raw_outputs = model(images_dev)
+                outputs = cast_outputs_to_float32(raw_outputs)
+                loss_dict = criterion(outputs, labels_dev)
+                loss_total = loss_dict["loss_total"]
                 scaler.scale(loss_total).backward()
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                outputs = model(images_dev)
+                raw_outputs = model(images_dev)
+                outputs = cast_outputs_to_float32(raw_outputs)
                 loss_dict = criterion(outputs, labels_dev)
                 loss_total = loss_dict["loss_total"]
                 loss_total.backward()
@@ -518,15 +539,46 @@ def _make_synthetic_batches(num_batches: int, batch_size: int, split_name: str, 
 
 def run_dry_run(mode: str = "zerofake", config_path: str = "configs/default.yaml") -> None:
     """
-    Runs 2 epochs on synthetic dummy images on CPU in under 5 seconds, verifies that `last_checkpoint.pt`
-    and `best_model.pt` (including calibrated `open_set_state`) are saved after every epoch, and tests
-    `--resume` by resuming from epoch 1 to epoch 2.
+    Runs 2 epochs on synthetic dummy images on CPU across all 4 ablation modes ('baseline', 'contrastive',
+    'single_proto', 'zerofake') with simulated float16 autocast forward + float32 loss/backward passes,
+    verifies zero overflow/NaNs, checks that `last_checkpoint.pt` and `best_model.pt` (including calibrated
+    `open_set_state`) are saved after every epoch, and tests `--resume` recovery in under 5 seconds.
     """
     start_time = time.time()
-    print(f"[DRY-RUN] Testing training/train.py (2 epochs on synthetic dummy images, mode='{mode}')...")
+    print(f"[DRY-RUN] Testing training/train.py across all 4 modes with simulated fp16 autocast -> fp32 loss...")
 
     train_batches = _make_synthetic_batches(num_batches=2, batch_size=8, split_name="train", seed=101)
     val_batches = _make_synthetic_batches(num_batches=3, batch_size=8, split_name="val", seed=202)
+
+    # 1. Verify simulated float16 forward outputs -> float32 cast -> loss & uncertainty across all 4 modes
+    for m in VALID_MODES:
+        net_m = ZeroFakeNet(mode=m, pretrained=False)
+        crit_m = ZeroFakeTotalLoss(mode=m, config_path=config_path)
+        sample_batch = train_batches[0]
+        if HAS_TORCH:
+            with torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16):
+                raw_out = net_m(sample_batch["image"])
+            # Simulate strict float16 outputs coming out of CUDA autocast
+            fp16_out = {
+                k: (v.half() if (isinstance(v, torch.Tensor) and v.is_floating_point()) else v)
+                for k, v in raw_out.items()
+            }
+            fp32_out = cast_outputs_to_float32(fp16_out)
+            loss_dict_m = crit_m(fp32_out, sample_batch["label"])
+            loss_dict_m["loss_total"].backward()
+            assert torch.isfinite(loss_dict_m["loss_total"]), f"Non-finite loss in mode={m}!"
+        else:
+            raw_out = net_m(sample_batch["image"].astype(np.float16).astype(np.float32))
+            fp16_out = {
+                k: (v.astype(np.float16) if (isinstance(v, np.ndarray) and np.issubdtype(v.dtype, np.floating)) else v)
+                for k, v in raw_out.items()
+            }
+            fp32_out = {
+                k: (v.astype(np.float32) if (isinstance(v, np.ndarray) and np.issubdtype(v.dtype, np.floating)) else v)
+                for k, v in fp16_out.items()
+            }
+            loss_dict_m = crit_m(fp32_out, sample_batch["label"])
+            assert np.isfinite(loss_dict_m["loss_total"]), f"Non-finite loss in mode={m}!"
 
     with tempfile.TemporaryDirectory() as tmp_save_dir:
         # Step 1: Run 1 epoch and save checkpoints
@@ -570,8 +622,9 @@ def run_dry_run(mode: str = "zerofake", config_path: str = "configs/default.yaml
     elapsed = time.time() - start_time
     assert elapsed < 5.0, f"Dry-run took {elapsed:.3f}s, exceeding 5.0s CPU limit!"
     print(
-        f"[DRY-RUN PASSED] Completed 2 epochs + checkpoint save/resume verification in {elapsed:.3f}s "
-        f"(best_val_auc={summary['best_val_auc']:.4f}, tau_reject={summary['tau_reject']:.4f})."
+        f"[DRY-RUN PASSED] Verified all 4 modes ({list(VALID_MODES)}) with fp16->fp32 loss & completed 2 epochs + "
+        f"checkpoint save/resume in {elapsed:.3f}s (best_val_auc={summary['best_val_auc']:.4f}, "
+        f"tau_reject={summary['tau_reject']:.4f})."
     )
 
 

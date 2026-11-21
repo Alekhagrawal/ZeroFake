@@ -49,49 +49,53 @@ if HAS_TORCH:
 
         def forward(self, z: "torch.Tensor", labels: "torch.Tensor") -> "torch.Tensor":
             assert z.ndim == 2, f"SupervisedContrastiveLoss expected 2D embeddings (B, D), got {tuple(z.shape)}"
-            b = z.shape[0]
-            y = labels.view(-1)
-            assert y.shape[0] == b, f"Label count {y.shape[0]} does not match batch size {b}!"
+            device_type = "cuda" if z.is_cuda else "cpu"
+            with torch.amp.autocast(device_type=device_type, enabled=False):
+                z_f32 = z.float()
+                b = z_f32.shape[0]
+                y = labels.view(-1)
+                assert y.shape[0] == b, f"Label count {y.shape[0]} does not match batch size {b}!"
 
-            if b <= 1:
-                return z.sum() * 0.0
+                if b <= 1:
+                    return z_f32.sum() * 0.0
 
-            # Compute in fp32 for mixed-precision numerical stability
-            z_norm = F.normalize(z.float(), p=2, dim=-1, eps=1e-8)
-            sim_matrix = torch.matmul(z_norm, z_norm.t()) / self.temperature  # (B, B)
+                # Compute strictly in fp32 for mixed-precision numerical stability
+                z_norm = F.normalize(z_f32, p=2, dim=-1, eps=1e-8)
+                sim_matrix = torch.matmul(z_norm, z_norm.t()) / self.temperature  # (B, B) in float32
 
-            # Mask out self-comparisons A(i) = {1..B} \ {i}
-            device = z.device
-            self_mask = torch.eye(b, dtype=torch.bool, device=device)
-            non_self_mask = ~self_mask
+                # Mask out self-comparisons A(i) = {1..B} \ {i}
+                device = z_f32.device
+                self_mask = torch.eye(b, dtype=torch.bool, device=device)
+                non_self_mask = ~self_mask
 
-            # Positive pair mask P(i) = {p in A(i) : y_p == y_i}
-            y_col = y.unsqueeze(1)
-            pos_mask = (y_col == y_col.t()) & non_self_mask
-            pos_counts = pos_mask.sum(dim=1)  # (B,)
+                # Positive pair mask P(i) = {p in A(i) : y_p == y_i}
+                y_col = y.unsqueeze(1)
+                pos_mask = (y_col == y_col.t()) & non_self_mask
+                pos_counts = pos_mask.sum(dim=1)  # (B,)
 
-            # Safeguard: if zero positive pairs exist in the entire batch, return 0.0 without NaN
-            valid_anchors = pos_counts > 0
-            if not bool(valid_anchors.any()):
-                return z.sum() * 0.0
+                # Safeguard: if zero positive pairs exist in the entire batch, return 0.0 without NaN
+                valid_anchors = pos_counts > 0
+                if not bool(valid_anchors.any()):
+                    return z_f32.sum() * 0.0
 
-            # Numerical stability: subtract max over non-self entries per row
-            masked_for_max = sim_matrix.masked_fill(self_mask, -1e9)
-            row_max = masked_for_max.max(dim=1, keepdim=True).values.detach()
-            logits = sim_matrix - row_max
+                # Numerical stability: subtract max over non-self entries per row using dtype-safe finfo.min
+                mask_fill_val = torch.finfo(sim_matrix.dtype).min
+                masked_for_max = sim_matrix.masked_fill(self_mask, mask_fill_val)
+                row_max = masked_for_max.max(dim=1, keepdim=True).values.detach()
+                logits = sim_matrix - row_max
 
-            exp_logits = torch.exp(logits) * non_self_mask.float()
-            log_denom = torch.log(exp_logits.sum(dim=1, keepdim=True).clamp(min=1e-12))
-            log_prob = logits - log_denom  # (B, B)
+                exp_logits = torch.exp(logits) * non_self_mask.float()
+                log_denom = torch.log(exp_logits.sum(dim=1, keepdim=True).clamp(min=1e-12))
+                log_prob = logits - log_denom  # (B, B)
 
-            # Average log_prob over positive pairs P(i) for valid anchors only
-            pos_log_prob_sum = (log_prob * pos_mask.float()).sum(dim=1)
-            safe_pos_counts = pos_counts.float().clamp(min=1.0)
-            anchor_losses = -pos_log_prob_sum / safe_pos_counts
+                # Average log_prob over positive pairs P(i) for valid anchors only
+                pos_log_prob_sum = (log_prob * pos_mask.float()).sum(dim=1)
+                safe_pos_counts = pos_counts.float().clamp(min=1.0)
+                anchor_losses = -pos_log_prob_sum / safe_pos_counts
 
-            loss = anchor_losses[valid_anchors].mean()
-            assert torch.isfinite(loss), "SupervisedContrastiveLoss produced non-finite value!"
-            return loss
+                loss = anchor_losses[valid_anchors].mean()
+                assert torch.isfinite(loss), "SupervisedContrastiveLoss produced non-finite value!"
+                return loss
 
 else:
 
@@ -128,7 +132,7 @@ else:
             if not np.any(valid_anchors):
                 return 0.0
 
-            masked_sim = np.where(self_mask, -1e9, sim_matrix)
+            masked_sim = np.where(self_mask, np.finfo(sim_matrix.dtype).min, sim_matrix)
             row_max = np.max(masked_sim, axis=1, keepdims=True)
             logits = sim_matrix - row_max
 

@@ -57,41 +57,44 @@ if HAS_TORCH:
             labels: "torch.Tensor",
             p_fake_norm: Optional["torch.Tensor"] = None,
         ) -> "torch.Tensor":
-            d_r = d_real.view(-1).float()
-            d_f = d_fake.view(-1).float()
-            y = labels.view(-1).float()
+            device_type = "cuda" if d_real.is_cuda else "cpu"
+            with torch.amp.autocast(device_type=device_type, enabled=False):
+                d_r = d_real.float().view(-1)
+                d_f = d_fake.float().view(-1)
+                y = labels.float().view(-1)
+                p_fake_f32 = p_fake_norm.float() if p_fake_norm is not None else None
 
-            assert d_r.shape == y.shape and d_f.shape == y.shape, (
-                f"PrototypeDistanceLoss shape mismatch: d_real={tuple(d_r.shape)}, "
-                f"d_fake={tuple(d_f.shape)}, labels={tuple(y.shape)}"
-            )
+                assert d_r.shape == y.shape and d_f.shape == y.shape, (
+                    f"PrototypeDistanceLoss shape mismatch: d_real={tuple(d_r.shape)}, "
+                    f"d_fake={tuple(d_f.shape)}, labels={tuple(y.shape)}"
+                )
 
-            # 1. Pull embedding z toward its same-class prototype (d_real for label 0, d_fake for label 1)
-            pull_loss = (1.0 - y) * d_r + y * d_f
+                # 1. Pull embedding z toward its same-class prototype (d_real for label 0, d_fake for label 1)
+                pull_loss = (1.0 - y) * d_r + y * d_f
 
-            # 2. Margin separation from opposite-class prototype
-            if self.margin > 0.0:
-                sep_real = F.relu(self.margin - d_f)
-                sep_fake = F.relu(self.margin - d_r)
-                sep_loss = (1.0 - y) * sep_real + y * sep_fake
-                base_loss = (pull_loss + sep_loss).mean()
-            else:
-                base_loss = pull_loss.mean()
+                # 2. Margin separation from opposite-class prototype
+                if self.margin > 0.0:
+                    sep_real = F.relu(self.margin - d_f)
+                    sep_fake = F.relu(self.margin - d_r)
+                    sep_loss = (1.0 - y) * sep_real + y * sep_fake
+                    base_loss = (pull_loss + sep_loss).mean()
+                else:
+                    base_loss = pull_loss.mean()
 
-            # 3. Fake prototype diversity regularization (when K > 1)
-            if p_fake_norm is not None and p_fake_norm.ndim == 2 and p_fake_norm.shape[0] > 1 and self.lambda_div > 0.0:
-                k = p_fake_norm.shape[0]
-                pf = F.normalize(p_fake_norm.float(), p=2, dim=-1, eps=1e-8)
-                sim_mat = torch.matmul(pf, pf.t())
-                triu_mask = torch.triu(torch.ones((k, k), dtype=torch.bool, device=pf.device), diagonal=1)
-                pairwise_sims = F.relu(sim_mat[triu_mask])
-                div_loss = pairwise_sims.mean() if pairwise_sims.numel() > 0 else (base_loss * 0.0)
-                total_proto_loss = base_loss + self.lambda_div * div_loss
-            else:
-                total_proto_loss = base_loss
+                # 3. Fake prototype diversity regularization (when K > 1)
+                if p_fake_f32 is not None and p_fake_f32.ndim == 2 and p_fake_f32.shape[0] > 1 and self.lambda_div > 0.0:
+                    k = p_fake_f32.shape[0]
+                    pf = F.normalize(p_fake_f32, p=2, dim=-1, eps=1e-8)
+                    sim_mat = torch.matmul(pf, pf.t())
+                    triu_mask = torch.triu(torch.ones((k, k), dtype=torch.bool, device=pf.device), diagonal=1)
+                    pairwise_sims = F.relu(sim_mat[triu_mask])
+                    div_loss = pairwise_sims.mean() if pairwise_sims.numel() > 0 else (base_loss * 0.0)
+                    total_proto_loss = base_loss + self.lambda_div * div_loss
+                else:
+                    total_proto_loss = base_loss
 
-            assert torch.isfinite(total_proto_loss), "PrototypeDistanceLoss produced non-finite value!"
-            return total_proto_loss
+                assert torch.isfinite(total_proto_loss), "PrototypeDistanceLoss produced non-finite value!"
+                return total_proto_loss
 
 else:
 

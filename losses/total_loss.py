@@ -137,35 +137,40 @@ if HAS_TORCH:
             model_outputs: Dict[str, "torch.Tensor"],
             labels: "torch.Tensor",
         ) -> Dict[str, "torch.Tensor"]:
-            logits = model_outputs["logits"]
-            embeddings = model_outputs["embeddings"]
-            d_real = model_outputs["d_real"]
-            d_fake = model_outputs["d_fake"]
-            p_fake_norm = model_outputs.get("p_fake_norm", None)
+            logits_raw = model_outputs["logits"]
+            device_type = "cuda" if logits_raw.is_cuda else "cpu"
+            with torch.amp.autocast(device_type=device_type, enabled=False):
+                logits = logits_raw.float()
+                embeddings = model_outputs["embeddings"].float()
+                d_real = model_outputs["d_real"].float()
+                d_fake = model_outputs["d_fake"].float()
+                p_fake_raw = model_outputs.get("p_fake_norm", None)
+                p_fake_norm = p_fake_raw.float() if p_fake_raw is not None else None
+                labels_f32 = labels.float()
 
-            loss_cls = self.cls_loss_fn(logits, labels)
+                loss_cls = self.cls_loss_fn(logits, labels_f32)
 
-            if self.lambda_1 > 0.0:
-                loss_con = self.con_loss_fn(embeddings, labels)
-            else:
-                loss_con = embeddings.sum() * 0.0
+                if self.lambda_1 > 0.0:
+                    loss_con = self.con_loss_fn(embeddings, labels)
+                else:
+                    loss_con = embeddings.sum() * 0.0
 
-            if self.lambda_2 > 0.0:
-                loss_proto = self.proto_loss_fn(d_real, d_fake, labels, p_fake_norm=p_fake_norm)
-            else:
-                loss_proto = d_real.sum() * 0.0
+                if self.lambda_2 > 0.0:
+                    loss_proto = self.proto_loss_fn(d_real, d_fake, labels_f32, p_fake_norm=p_fake_norm)
+                else:
+                    loss_proto = d_real.sum() * 0.0
 
-            loss_total = loss_cls + (self.lambda_1 * loss_con) + (self.lambda_2 * loss_proto)
-            assert torch.isfinite(loss_total), "ZeroFakeTotalLoss produced non-finite L_total!"
+                loss_total = loss_cls + (self.lambda_1 * loss_con) + (self.lambda_2 * loss_proto)
+                assert torch.isfinite(loss_total), "ZeroFakeTotalLoss produced non-finite L_total!"
 
-            return {
-                "loss_total": loss_total,
-                "loss_cls": loss_cls,
-                "loss_con": loss_con,
-                "loss_proto": loss_proto,
-                "lambda_1": self.lambda_1,
-                "lambda_2": self.lambda_2,
-            }
+                return {
+                    "loss_total": loss_total,
+                    "loss_cls": loss_cls,
+                    "loss_con": loss_con,
+                    "loss_proto": loss_proto,
+                    "lambda_1": self.lambda_1,
+                    "lambda_2": self.lambda_2,
+                }
 
 else:
 
