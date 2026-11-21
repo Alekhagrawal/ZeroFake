@@ -13,17 +13,19 @@
 #   - Dictionary containing 'val_loss', 'val_loss_cls', 'val_loss_con', 'val_loss_proto', 'roc_auc',
 #     'eer', 'f1', and optional 'open_set_calibration' stats ('tau_reject', 'val_coverage').
 
-import argparse
 import sys
-import time
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) in sys.path:
+    sys.path.remove(str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT))
+
+import argparse
+import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from losses.total_loss import ZeroFakeTotalLoss
 from models.open_set import OpenSetUncertaintyScorer

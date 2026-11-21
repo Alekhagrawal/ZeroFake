@@ -22,22 +22,28 @@
 #   - best_model.pt (updated whenever validation ROC-AUC improves, plus final validation-calibrated open_set_state).
 #   - training_history.json logging per-epoch train/val losses, ROC-AUC, EER, and calibrated tau_reject.
 
+import sys
+from pathlib import Path
+
+# Insert repository root at sys.path[0] (and purge any pre-cached Hugging Face 'datasets' module)
+# so `from datasets.deepfake_dataset import ...` always resolves to ZeroFake's local datasets/ package.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) in sys.path:
+    sys.path.remove(str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT))
+if "datasets" in sys.modules and not hasattr(sys.modules["datasets"], "__path__"):
+    del sys.modules["datasets"]
+
 import argparse
 import json
 import os
 import pickle
-import sys
 import tempfile
 import time
 import zipfile
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from datasets.deepfake_dataset import DeepfakeDataset, GeneratorBalancedBatchSampler
 from losses.total_loss import ZeroFakeTotalLoss
