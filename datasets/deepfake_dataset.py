@@ -150,16 +150,26 @@ class DeepfakeDataset(Dataset):
         self.augment = (self.split == "train") if augment is None else bool(augment)
 
         holdout_generator = None
+        video_to_split: Dict[str, str] = {}
         if splits_path and os.path.exists(splits_path):
             with open(splits_path, "r", encoding="utf-8") as sf:
-                split_meta = json.load(sf).get("metadata", {})
-                holdout_generator = split_meta.get("holdout_generator", None)
+                splits_payload = json.load(sf)
+            split_meta = splits_payload.get("metadata", {})
+            holdout_generator = split_meta.get("holdout_generator", None)
+            for sp_name, sp_records in splits_payload.get("splits", {}).items():
+                for rec in sp_records:
+                    vid_key = str(rec.get("video_id", "")).strip()
+                    if vid_key:
+                        video_to_split[vid_key] = sp_name.strip()
 
         self.samples: List[Dict] = []
         with open(self.manifest_path, "r", encoding="utf-8") as mf:
             reader = csv.DictReader(mf)
             for row in reader:
-                row_split = row["split"].strip()
+                row_vid = row["video_id"].strip()
+                # If a custom --splits_path (such as splits_holdout_faceswap.json) provides a video_id -> split mapping,
+                # use that authoritative split assignment; otherwise use the row's 'split' column from frames_manifest.csv.
+                row_split = video_to_split.get(row_vid, row["split"].strip())
                 row_label = int(row["label"])
                 row_gen = row["generator_name"].strip()
                 resolved_img_path = self._resolve_image_path(row["image_path"].strip())
@@ -170,7 +180,7 @@ class DeepfakeDataset(Dataset):
                             "image_path": resolved_img_path,
                             "split": row_split,
                             "label": row_label,
-                            "video_id": row["video_id"].strip(),
+                            "video_id": row_vid,
                             "identity_ids": row.get("identity_ids", "").strip(),
                             "generator_name": row_gen,
                         }
@@ -186,7 +196,7 @@ class DeepfakeDataset(Dataset):
                             "image_path": resolved_img_path,
                             "split": "test_unseen",
                             "label": 0,
-                            "video_id": row["video_id"].strip(),
+                            "video_id": row_vid,
                             "identity_ids": row.get("identity_ids", "").strip(),
                             "generator_name": row_gen,
                         }
