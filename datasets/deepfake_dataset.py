@@ -16,23 +16,27 @@
 #     'generator_name': str, 'video_id': str, 'image_path': str}.
 #   - GeneratorBalancedBatchSampler yielding lists of dataset indices of length `batch_size`.
 
+import sys
+from pathlib import Path
+
+# Insert repository root at sys.path[0] so Colab's pre-installed Hugging Face 'datasets' package
+# never shadows ZeroFake's local 'datasets.deepfake_dataset' module.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) in sys.path:
+    sys.path.remove(str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import argparse
 import csv
 import json
 import os
 import random
-import sys
 import tempfile
 import time
 from collections import defaultdict
-from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 
 import numpy as np
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
     import torch
@@ -138,8 +142,9 @@ class DeepfakeDataset(Dataset):
         if not os.path.exists(manifest_path):
             raise FileNotFoundError(f"frames_manifest.csv not found at: {manifest_path}")
 
-        self.manifest_path = manifest_path
-        self.root_dir = root_dir if root_dir is not None else str(Path(manifest_path).resolve().parent)
+        self.manifest_path = os.path.abspath(manifest_path)
+        self.manifest_dir = os.path.dirname(self.manifest_path)
+        self.root_dir = os.path.abspath(root_dir) if root_dir is not None else self.manifest_dir
         self.split = split.strip()
         self.image_size = int(image_size)
         self.augment = (self.split == "train") if augment is None else bool(augment)
@@ -151,17 +156,18 @@ class DeepfakeDataset(Dataset):
                 holdout_generator = split_meta.get("holdout_generator", None)
 
         self.samples: List[Dict] = []
-        with open(manifest_path, "r", encoding="utf-8") as mf:
+        with open(self.manifest_path, "r", encoding="utf-8") as mf:
             reader = csv.DictReader(mf)
             for row in reader:
                 row_split = row["split"].strip()
                 row_label = int(row["label"])
                 row_gen = row["generator_name"].strip()
+                resolved_img_path = self._resolve_image_path(row["image_path"].strip())
 
                 if row_split == self.split:
                     self.samples.append(
                         {
-                            "image_path": row["image_path"].strip(),
+                            "image_path": resolved_img_path,
                             "split": row_split,
                             "label": row_label,
                             "video_id": row["video_id"].strip(),
@@ -177,7 +183,7 @@ class DeepfakeDataset(Dataset):
                 ):
                     self.samples.append(
                         {
-                            "image_path": row["image_path"].strip(),
+                            "image_path": resolved_img_path,
                             "split": "test_unseen",
                             "label": 0,
                             "video_id": row["video_id"].strip(),
@@ -193,12 +199,54 @@ class DeepfakeDataset(Dataset):
                     f"Rule 3 Violation: Held-out generator '{holdout_generator}' found in '{self.split}' split!"
                 )
 
+    def _resolve_image_path(self, raw_path: str) -> str:
+        """
+        Resolves an image path from `frames_manifest.csv` robustly across Colab and local disks:
+          1. If `raw_path` exists verbatim, returns it directly.
+          2. If `os.path.join(self.root_dir, raw_path)` or `os.path.join(self.manifest_dir, raw_path)` exists, returns it.
+          3. If `raw_path` was saved with a prefix from another directory (e.g. `/content/processed_faces/crops/...`
+             or `processed_faces/crops/...`), strips the prefix up to `crops/` and resolves relative to
+             `self.manifest_dir` (i.e. `os.path.dirname(manifest_path)`) and `self.root_dir`.
+        """
+        norm_raw = raw_path.replace("\\", "/").strip()
+
+        # 1. Verbatim check
+        if os.path.exists(raw_path):
+            return os.path.abspath(raw_path)
+
+        # 2. Direct join relative to root_dir or os.path.dirname(manifest_path)
+        rel_clean = norm_raw.lstrip("/")
+        for base_dir in (self.root_dir, self.manifest_dir):
+            cand = os.path.join(base_dir, rel_clean)
+            if os.path.exists(cand):
+                return os.path.abspath(cand)
+
+        # 3. Strip legacy prefix like '/content/processed_faces/' or any prefix before 'crops/'
+        candidate_suffixes = []
+        for prefix in ("/content/processed_faces/", "content/processed_faces/", "processed_faces/", "/content/data/"):
+            if norm_raw.startswith(prefix):
+                candidate_suffixes.append(norm_raw[len(prefix) :].lstrip("/"))
+        if "crops/" in norm_raw:
+            crops_idx = norm_raw.index("crops/")
+            candidate_suffixes.append(norm_raw[crops_idx:])
+        candidate_suffixes.append(os.path.basename(norm_raw))
+
+        for suffix in candidate_suffixes:
+            for base_dir in (self.manifest_dir, self.root_dir):
+                cand = os.path.join(base_dir, suffix)
+                if os.path.exists(cand):
+                    return os.path.abspath(cand)
+
+        # Default fallback relative to os.path.dirname(manifest_path)
+        fallback_suffix = candidate_suffixes[0] if candidate_suffixes else rel_clean
+        return os.path.join(self.manifest_dir, fallback_suffix)
+
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Dict:
         rec = self.samples[idx]
-        abs_img_path = os.path.join(self.root_dir, rec["image_path"])
+        abs_img_path = rec["image_path"] if os.path.exists(rec["image_path"]) else os.path.join(self.manifest_dir, rec["image_path"])
         rgb = load_rgb_image_224(abs_img_path, image_size=self.image_size)
         norm_chw = normalize_imagenet_chw(rgb, augment=self.augment)
 

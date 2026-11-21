@@ -250,6 +250,7 @@ def run_training_loop(
     lr: float = 1e-4,
     weight_decay: float = 1e-4,
     data_dir: str = "/content/data",
+    splits_path: Optional[str] = None,
     save_dir: str = "checkpoints",
     resume_path: Optional[str] = None,
     pretrained: bool = True,
@@ -278,24 +279,24 @@ def run_training_loop(
     if train_loader is None or val_loader is None:
         maybe_unzip_drive_archive(data_dir)
         manifest_path = os.path.join(data_dir, "frames_manifest.csv")
-        splits_path = os.path.join(data_dir, "splits.json")
+        resolved_splits_path = splits_path if splits_path else os.path.join(data_dir, "splits.json")
         if not os.path.exists(manifest_path):
             manifest_path = str(cfg.get("data", {}).get("manifest_path", "datasets/processed/frames_manifest.csv"))
-        if not os.path.exists(splits_path):
-            splits_path = str(cfg.get("data", {}).get("splits_path", "datasets/splits.json"))
+        if not os.path.exists(resolved_splits_path):
+            resolved_splits_path = str(cfg.get("data", {}).get("splits_path", "datasets/splits.json"))
 
         train_dataset = DeepfakeDataset(
             manifest_path=manifest_path,
-            root_dir=data_dir if os.path.exists(os.path.join(data_dir, "crops")) else None,
+            root_dir=data_dir,
             split="train",
-            splits_path=splits_path,
+            splits_path=resolved_splits_path,
             augment=True,
         )
         val_dataset = DeepfakeDataset(
             manifest_path=manifest_path,
-            root_dir=data_dir if os.path.exists(os.path.join(data_dir, "crops")) else None,
+            root_dir=data_dir,
             split="val",
-            splits_path=splits_path,
+            splits_path=resolved_splits_path,
             augment=False,
         )
 
@@ -605,6 +606,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing extracted face crops and frames_manifest.csv.",
     )
     parser.add_argument(
+        "--splits_path",
+        type=str,
+        default=None,
+        help="Optional explicit path to splits.json (defaults to <data_dir>/splits.json).",
+    )
+    parser.add_argument(
         "--save_dir",
         type=str,
         default="checkpoints",
@@ -631,6 +638,10 @@ def main() -> None:
         run_dry_run(mode=args.mode, config_path=args.config)
         return
 
+    manifest_path = os.path.join(args.data_dir, "frames_manifest.csv")
+    splits_path = args.splits_path if args.splits_path else os.path.join(args.data_dir, "splits.json")
+    print(f"[INFO] Resolved manifest_path={manifest_path}, splits_path={splits_path}")
+
     run_training_loop(
         mode=args.mode,
         config_path=args.config,
@@ -639,6 +650,7 @@ def main() -> None:
         batch_size=args.batch_size,
         lr=args.lr,
         data_dir=args.data_dir,
+        splits_path=splits_path,
         save_dir=args.save_dir,
         resume_path=args.resume,
     )
