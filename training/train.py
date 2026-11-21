@@ -377,28 +377,37 @@ def run_training_loop(
     last_ckpt_path = os.path.join(save_dir, "last_checkpoint.pt")
     best_ckpt_path = os.path.join(save_dir, "best_model.pt")
 
-    # Handle --resume
+    # Handle --resume gracefully: if checkpoint is from a different mode/architecture, start fresh
     if resume_path:
         target_resume = last_ckpt_path if resume_path.lower() in ("auto", "true", "last") else resume_path
         if os.path.exists(target_resume):
-            ckpt = load_checkpoint_file(target_resume, map_location=device)
-            set_model_state(model, ckpt["model_state_dict"])
-            if HAS_TORCH and optimizer is not None and ckpt.get("optimizer_state_dict") is not None:
-                optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-            if HAS_TORCH and scheduler is not None and ckpt.get("scheduler_state_dict") is not None:
-                scheduler.load_state_dict(ckpt["scheduler_state_dict"])
-            if HAS_TORCH and scaler is not None and ckpt.get("scaler_state_dict") is not None:
-                scaler.load_state_dict(ckpt["scaler_state_dict"])
-            if "open_set_state" in ckpt:
-                open_set_scorer.load_state_dict(ckpt["open_set_state"])
+            try:
+                ckpt = load_checkpoint_file(target_resume, map_location=device)
+                ckpt_mode = str(ckpt.get("mode", mode)).strip().lower()
+                if ckpt_mode != mode.strip().lower():
+                    print(
+                        f"[RESUME WARNING] Checkpoint mode '{ckpt_mode}' != current mode '{mode}'. Starting fresh."
+                    )
+                else:
+                    set_model_state(model, ckpt["model_state_dict"])
+                    if HAS_TORCH and optimizer is not None and ckpt.get("optimizer_state_dict") is not None:
+                        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+                    if HAS_TORCH and scheduler is not None and ckpt.get("scheduler_state_dict") is not None:
+                        scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+                    if HAS_TORCH and scaler is not None and ckpt.get("scaler_state_dict") is not None:
+                        scaler.load_state_dict(ckpt["scaler_state_dict"])
+                    if "open_set_state" in ckpt:
+                        open_set_scorer.load_state_dict(ckpt["open_set_state"])
 
-            start_epoch = int(ckpt.get("epoch", -1)) + 1
-            best_val_auc = float(ckpt.get("best_val_auc", -1.0))
-            history = list(ckpt.get("history", []))
-            print(
-                f"[RESUME] Restored checkpoint '{target_resume}' at epoch {start_epoch}/{epochs} "
-                f"(best_val_auc={best_val_auc:.4f})."
-            )
+                    start_epoch = int(ckpt.get("epoch", -1)) + 1
+                    best_val_auc = float(ckpt.get("best_val_auc", -1.0))
+                    history = list(ckpt.get("history", []))
+                    print(
+                        f"[RESUME] Restored checkpoint '{target_resume}' at epoch {start_epoch}/{epochs} "
+                        f"(best_val_auc={best_val_auc:.4f})."
+                    )
+            except Exception as exc:
+                print(f"[RESUME WARNING] Could not load '{target_resume}' ({exc}). Starting fresh from epoch 0.")
 
     for epoch in range(start_epoch, int(epochs)):
         epoch_t0 = time.time()
