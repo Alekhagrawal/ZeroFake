@@ -151,6 +151,7 @@ class DeepfakeDataset(Dataset):
 
         holdout_generator = None
         video_to_split: Dict[str, str] = {}
+        has_authoritative_splits = False
         if splits_path and os.path.exists(splits_path):
             with open(splits_path, "r", encoding="utf-8") as sf:
                 splits_payload = json.load(sf)
@@ -161,17 +162,30 @@ class DeepfakeDataset(Dataset):
                     vid_key = str(rec.get("video_id", "")).strip()
                     if vid_key:
                         video_to_split[vid_key] = sp_name.strip()
+                    gen_key = str(rec.get("generator_name", "")).strip()
+                    fname_stem = Path(str(rec.get("filename", rec.get("video_path", "")))).stem
+                    if gen_key and fname_stem:
+                        video_to_split[f"{gen_key}/{fname_stem}"] = sp_name.strip()
+            has_authoritative_splits = len(video_to_split) > 0
 
         self.samples: List[Dict] = []
         with open(self.manifest_path, "r", encoding="utf-8") as mf:
             reader = csv.DictReader(mf)
             for row in reader:
                 row_vid = row["video_id"].strip()
-                # If a custom --splits_path (such as splits_holdout_faceswap.json) provides a video_id -> split mapping,
-                # use that authoritative split assignment; otherwise use the row's 'split' column from frames_manifest.csv.
-                row_split = video_to_split.get(row_vid, row["split"].strip())
-                row_label = int(row["label"])
                 row_gen = row["generator_name"].strip()
+                # When --splits_path is provided and populated (such as splits_holdout_faceswap.json),
+                # assign each video's split strictly from splits_path (never falling back to the
+                # pre-existing 'split' column inside frames_manifest.csv).
+                if has_authoritative_splits:
+                    alt_vid = f"{row_gen}/{Path(row_vid).stem}"
+                    row_split = video_to_split.get(row_vid, video_to_split.get(alt_vid, None))
+                    if row_split is None:
+                        continue
+                else:
+                    row_split = row["split"].strip()
+
+                row_label = int(row["label"])
                 resolved_img_path = self._resolve_image_path(row["image_path"].strip())
 
                 if row_split == self.split:
@@ -460,6 +474,42 @@ def run_dry_run() -> None:
             assert gen_counts["Deepfakes"] == 2 and gen_counts["Face2Face"] == 2 and gen_counts["FaceSwap"] == 2, (
                 f"Expected equal Fake generator distribution (2 each), got {dict(gen_counts)}"
             )
+
+        # Also verify custom --splits_path rotation (e.g. splits_holdout_faceswap.json) overrides
+        # the pre-existing 'split' column in frames_manifest.csv:
+        faceswap_splits_path = os.path.join(tmp_dir, "splits_holdout_faceswap.json")
+        rot_splits = {"train": [], "val": [], "test_closed": [], "test_unseen": []}
+        for r in rows:
+            vid = r["video_id"]
+            gen = r["generator_name"]
+            if gen == "FaceSwap":
+                rot_splits["test_unseen"].append({"video_id": vid, "generator_name": gen})
+            else:
+                rot_splits["train"].append({"video_id": vid, "generator_name": gen})
+        with open(faceswap_splits_path, "w", encoding="utf-8") as fsf:
+            json.dump({"metadata": {"holdout_generator": "FaceSwap"}, "splits": rot_splits}, fsf)
+
+        train_rot_ds = DeepfakeDataset(
+            manifest_path=manifest_path,
+            root_dir=tmp_dir,
+            split="train",
+            splits_path=faceswap_splits_path,
+            image_size=224,
+        )
+        unseen_rot_ds = DeepfakeDataset(
+            manifest_path=manifest_path,
+            root_dir=tmp_dir,
+            split="test_unseen",
+            splits_path=faceswap_splits_path,
+            image_size=224,
+            include_closed_real_in_unseen=False,
+        )
+        assert all(s["generator_name"] != "FaceSwap" for s in train_rot_ds.samples), (
+            "FaceSwap leaked into train split under splits_holdout_faceswap.json!"
+        )
+        assert len(unseen_rot_ds) == 8 and all(s["generator_name"] == "FaceSwap" for s in unseen_rot_ds.samples), (
+            "test_unseen did not load FaceSwap samples strictly from splits_holdout_faceswap.json!"
+        )
 
     elapsed = time.time() - start_time
     assert elapsed < 5.0, f"Dry-run exceeded 5s limit ({elapsed:.3f}s)"
