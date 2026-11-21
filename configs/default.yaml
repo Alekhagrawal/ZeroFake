@@ -1,0 +1,2 @@
+# Default hyperparameters, dataset paths, and ablation settings for ZeroFake.
+# Inputs: Read by training, evaluation, and preprocessing scripts; Outputs: Structured YAML configuration dictionary.
