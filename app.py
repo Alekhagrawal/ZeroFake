@@ -1,38 +1,33 @@
 # File: app.py
-# What this file does: Ultra-clean, minimalist light-mode Gradio web UI for ZeroFake inspired by modern
-#   AI detector landing pages, with collapsible dropdown accordions for deep forensic and benchmark details:
-#   1. Minimalist Light Theme & Visual Polish: Uses gr.themes.Soft(primary_hue="indigo", neutral_hue="slate")
-#      with custom CSS setting an off-white canvas (#f6f7fb), crisp white cards (#ffffff) with subtle borders
-#      (#e2e8f0) and soft shadows, dark high-contrast text (#0f172a), muted slate subtitles (#475569), and
-#      royal indigo (#3b38d8) active pills. Contains zero pre-loaded sample buttons.
-#   2. Centered Minimalist Hero Header & 2-Mode Pill Switcher:
-#      - Centered Title: "ZeroFake: Deepfake & Synthetic Face Detector"
-#      - Centered Subtitle: "Automatically flags deepfakes, facial manipulations, and unseen synthetic generators.
-#        Upload or paste a face image or video clip for instant open-set verification."
-#      - Clean 2-option centered pill switcher ("Images" and "Videos" ONLY).
-#   3. Clean Dashed Upload Card + Instant Auto-Detection (Zero Extra Clicks):
-#      - Images Mode: Dashed white upload card using gr.Image(sources=["upload", "clipboard"], type="numpy",
-#        label="Drop an image here, browse files, or press Ctrl+V to paste"). Wired with image_input.input(...)
-#        so uploading or pasting an image runs inference immediately.
-#      - Videos Mode: Dashed white upload card using gr.Video(label="Drop a short video clip here (8-frame fast sampling)").
-#        Wired with video_input.upload(...) so uploading a video runs inference immediately.
-#      - Subtle "Clear" button to reset the current media.
-#   4. Clean Primary Verdict Card (Always Visible After Upload):
-#      - Large color-coded status pill: REAL (emerald green #16a34a), FAKE (crimson red #dc2626), or
-#        UNKNOWN — Unseen / Ambiguous (amber #d97706), with confidence/fake probability % and a single
-#        plain-English summary sentence (plus a friendly warning if no face is detected by MTCNN).
-#   5. Three Collapsible Dropdown Menus (gr.Accordion(..., open=False)):
-#      - Dropdown 1: "Forensic Explainability & Grad-CAM Heatmap" (open=False)
-#      - Dropdown 2: "Open-Set Uncertainty & Prototype Similarity Details" (open=False)
-#      - Dropdown 3: "Model Benchmarks & Evaluation Results" (open=False)
-#   6. Minimalist 3-Column Checkmark Footer Strip & Dry-Run (< 60s CPU limit).
+# What this file does: Designer-grade, minimalist light-mode Gradio web application for ZeroFake
+#   with a dedicated Viewport / Device Switcher ("🖥️ PC / Desktop Interface" vs. "📱 Phone / Mobile Interface"):
+#   1. Dedicated PC vs. Phone Interface Switcher:
+#      - PC / Desktop Mode (1120px wide, split 2-column executive layout): Left column holds the
+#        2-mode pill bar ("Images" | "Videos") and dashed dropzone card; Right column holds the live
+#        Executive Verdict Card with quick-metric KPI tiles, followed by wide collapsible forensic
+#        and benchmark accordions.
+#      - Phone / Mobile Mode (420px authentic smartphone shell with iOS-style status bar, rounded
+#        bezel, compact single-column vertical flow, touch-sized upload zone, stacked Verdict Card,
+#        and mobile-optimized accordions).
+#   2. Visual Design System:
+#      - Clean light theme (gr.themes.Soft(primary_hue="indigo", neutral_hue="slate")) on an off-white
+#        SaaS canvas (#f6f7fb), pure white elevated cards (#ffffff), subtle borders (#e2e8f0),
+#        high-contrast slate typography (#0f172a / #475569), and royal indigo (#3b38d8) active pills.
+#   3. Instant Zero-Click Auto-Detection:
+#      - Uploading or pasting an image (Ctrl+V) or uploading a short video clip (8-frame fast sampling)
+#        in either PC or Phone mode immediately runs MTCNN face alignment and ZeroFake inference and
+#        synchronizes results across both interfaces simultaneously.
+#   4. Three Collapsed-by-Default Forensic & Research Dropdowns (gr.Accordion(..., open=False)):
+#      - Dropdown 1: "Forensic Explainability & Grad-CAM Heatmap" (3-panel spatial attribution)
+#      - Dropdown 2: "Open-Set Uncertainty & Prototype Similarity Details" (U(x) vs. tau_reject meter + P1-P6 chart)
+#      - Dropdown 3: "Model Benchmarks & Evaluation Results" (Auto-loaded ablation & robustness CSVs + 300-DPI plots)
 # Inputs:
 #   - --checkpoint (str): Path to trained ZeroFake checkpoint (.pt).
 #   - --results_dir (str): Directory containing ablation_summary.csv, robustness_summary.csv, and plots/ (default: results).
-#   - --dry-run (flag): Verifies UI construction, image/video auto-inference, faceless warning, and
-#     collapsible accordions on CPU (< 60s limit).
+#   - --dry-run (flag): Verifies both PC and Phone interfaces, mode switching, auto-inference, and
+#     faceless-frame warning handling on CPU (< 60s limit).
 # Outputs:
-#   - Live minimalist Gradio web application launched via demo.launch(share=True, debug=True).
+#   - Live dual-interface Gradio web application launched via demo.launch(share=True, debug=True).
 
 import sys
 from pathlib import Path
@@ -121,30 +116,146 @@ PLOT_TITLES = {
     "gradcam_heatmaps.png": "4. ConvNeXt-Tiny 4x3 Grad-CAM Facial Artifact Attribution Grid",
 }
 
-MINIMALIST_LIGHT_CSS = """
+DESIGNER_DUAL_UI_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
 body, .gradio-container {
-    background-color: #f6f7fb !important;
+    background: radial-gradient(circle at 50% 0%, #eef2ff 0%, #f6f7fb 42%, #f6f7fb 100%) !important;
     color: #0f172a !important;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
 .gradio-container {
-    max-width: 960px !important;
+    max-width: 1180px !important;
     margin: 0 auto !important;
-    padding-top: 24px !important;
+    padding: 18px 24px 36px 24px !important;
 }
-/* Centered Hero Header */
+
+/* Top SaaS Navigation Bar */
+.zf-navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(10px);
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 12px 22px;
+    margin-bottom: 18px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+.zf-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.zf-logo-mark {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #3b38d8 0%, #4f46e5 100%);
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 10px rgba(59, 56, 216, 0.28);
+}
+.zf-brand-name {
+    font-size: 17px;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.3px;
+}
+.zf-brand-tag {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #3b38d8;
+    background: #eef2ff;
+    padding: 3px 9px;
+    border-radius: 999px;
+    margin-left: 6px;
+}
+.zf-nav-badges {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #475569;
+}
+.zf-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #16a34a;
+    display: inline-block;
+    margin-right: 5px;
+}
+
+/* Device Switcher Pill Bar (PC vs Phone) */
+#zf-device-switcher {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 999px !important;
+    padding: 5px 8px !important;
+    width: fit-content !important;
+    margin: 0 auto 18px auto !important;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05) !important;
+}
+#zf-device-switcher .wrap {
+    display: flex !important;
+    gap: 6px !important;
+    justify-content: center !important;
+}
+#zf-device-switcher label {
+    border: none !important;
+    border-radius: 999px !important;
+    padding: 8px 22px !important;
+    font-size: 13.5px !important;
+    font-weight: 700 !important;
+    color: #475569 !important;
+    background: transparent !important;
+    cursor: pointer !important;
+    transition: all 0.18s ease !important;
+    margin: 0 !important;
+}
+#zf-device-switcher label.selected {
+    background: #0f172a !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.22) !important;
+}
+#zf-device-switcher input[type="radio"] {
+    display: none !important;
+}
+
+/* Hero Section */
 .zf-hero {
     text-align: center;
-    max-width: 720px;
-    margin: 0 auto 18px auto;
-    padding: 8px 16px;
+    max-width: 760px;
+    margin: 0 auto 22px auto;
+    padding: 4px 12px;
+}
+.zf-hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    color: #3b38d8;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 14px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
 }
 .zf-hero-title {
-    font-size: 36px;
-    font-weight: 800;
+    font-size: 38px;
+    font-weight: 900;
     color: #0f172a !important;
-    letter-spacing: -0.6px;
-    line-height: 1.2;
+    letter-spacing: -0.9px;
+    line-height: 1.15;
     margin-bottom: 12px;
 }
 .zf-hero-subtitle {
@@ -154,77 +265,117 @@ body, .gradio-container {
     line-height: 1.6;
     margin: 0 auto;
 }
+
 /* 2-Option Centered Mode Pill Bar (Images | Videos) */
-#zf-mode-tabs > .tab-nav,
-#zf-mode-tabs [role="tablist"] {
+.zf-pill-tabs > .tab-nav,
+.zf-pill-tabs [role="tablist"] {
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
-    background: #ffffff !important;
+    background: #f1f5f9 !important;
     border: 1px solid #e2e8f0 !important;
     border-radius: 999px !important;
-    padding: 5px !important;
+    padding: 4px !important;
     width: fit-content !important;
-    margin: 0 auto 22px auto !important;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+    margin: 0 auto 16px auto !important;
     gap: 4px !important;
 }
-#zf-mode-tabs > .tab-nav button,
-#zf-mode-tabs [role="tab"] {
+.zf-pill-tabs > .tab-nav button,
+.zf-pill-tabs [role="tab"] {
     border: none !important;
     border-radius: 999px !important;
-    padding: 8px 28px !important;
-    font-size: 14px !important;
-    font-weight: 600 !important;
+    padding: 7px 26px !important;
+    font-size: 13.5px !important;
+    font-weight: 700 !important;
     color: #475569 !important;
     background: transparent !important;
     transition: all 0.18s ease !important;
 }
-#zf-mode-tabs > .tab-nav button.selected,
-#zf-mode-tabs [role="tab"][aria-selected="true"] {
+.zf-pill-tabs > .tab-nav button.selected,
+.zf-pill-tabs [role="tab"][aria-selected="true"] {
     background: #3b38d8 !important;
     color: #ffffff !important;
-    box-shadow: 0 2px 6px rgba(59, 56, 216, 0.28) !important;
+    box-shadow: 0 2px 8px rgba(59, 56, 216, 0.3) !important;
 }
+
+/* PC Workspace Shell */
+.zf-pc-workspace {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 22px !important;
+    padding: 24px !important;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.05) !important;
+    margin-bottom: 18px !important;
+}
+
 /* Clean White Dashed Upload Card */
 .zf-upload-card {
-    background: #ffffff !important;
+    background: #f8fafc !important;
     border: 2px dashed #cbd5e1 !important;
-    border-radius: 18px !important;
-    padding: 18px !important;
-    max-width: 640px !important;
-    margin: 0 auto 12px auto !important;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04) !important;
-    transition: border-color 0.2s ease !important;
+    border-radius: 16px !important;
+    padding: 14px !important;
+    transition: all 0.2s ease !important;
 }
 .zf-upload-card:hover {
     border-color: #3b38d8 !important;
+    background: #f5f7ff !important;
 }
+
+/* Phone / Mobile Frame Shell (420px authentic smartphone container) */
+#zf-phone-shell {
+    max-width: 430px !important;
+    margin: 0 auto 24px auto !important;
+    background: #ffffff !important;
+    border: 10px solid #0f172a !important;
+    border-radius: 42px !important;
+    padding: 14px 16px 24px 16px !important;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18), 0 0 0 2px #cbd5e1 !important;
+}
+.zf-phone-statusbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 12px 10px 12px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 12px;
+}
+.zf-phone-notch {
+    width: 86px;
+    height: 18px;
+    background: #0f172a;
+    border-radius: 999px;
+    margin: 0 auto;
+}
+
 /* Subtle Clear Button */
-#zf-clear-btn {
-    max-width: 140px !important;
-    margin: 0 auto 20px auto !important;
+.zf-clear-btn {
+    max-width: 150px !important;
+    margin: 10px auto 4px auto !important;
     background: #ffffff !important;
     color: #475569 !important;
-    border: 1px solid #e2e8f0 !important;
+    border: 1px solid #cbd5e1 !important;
     border-radius: 999px !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    padding: 6px 18px !important;
+    font-size: 12.5px !important;
+    font-weight: 700 !important;
+    padding: 6px 16px !important;
     display: block !important;
 }
-#zf-clear-btn:hover {
+.zf-clear-btn:hover {
     color: #0f172a !important;
-    border-color: #cbd5e1 !important;
+    border-color: #94a3b8 !important;
     background: #f8fafc !important;
 }
+
 /* Collapsible Dropdown Accordions */
 .zf-accordion {
     background: #ffffff !important;
     border: 1px solid #e2e8f0 !important;
-    border-radius: 14px !important;
+    border-radius: 16px !important;
     margin-bottom: 12px !important;
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03) !important;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.03) !important;
     color: #0f172a !important;
 }
 .zf-accordion span, .zf-accordion .label-wrap {
@@ -232,13 +383,14 @@ body, .gradio-container {
     font-weight: 700 !important;
     font-size: 14.5px !important;
 }
+
 /* High-Contrast Benchmark Tables */
 .zf-table-wrap table {
     width: 100%;
     border-collapse: collapse;
     background: #ffffff !important;
     color: #0f172a !important;
-    font-size: 13px;
+    font-size: 12.5px;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
     overflow: hidden;
@@ -262,6 +414,7 @@ body, .gradio-container {
     font-weight: 700;
     color: #3b38d8 !important;
 }
+
 /* Minimalist 3-Column Checkmark Footer Strip */
 .zf-footer {
     display: flex;
@@ -269,12 +422,12 @@ body, .gradio-container {
     align-items: center;
     flex-wrap: wrap;
     gap: 28px;
-    margin: 28px auto 16px auto;
+    margin: 26px auto 10px auto;
     padding: 16px 20px;
     border-top: 1px solid #e2e8f0;
     color: #475569 !important;
     font-size: 13.5px;
-    font-weight: 500;
+    font-weight: 600;
 }
 .zf-footer-item {
     display: flex;
@@ -286,30 +439,49 @@ body, .gradio-container {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     border-radius: 999px;
     background: #e0e7ff;
     color: #3b38d8;
-    font-size: 11px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 900;
 }
 """
 
 
-def render_idle_verdict_card_html() -> str:
+def render_idle_verdict_card_html(compact: bool = False) -> str:
     """
-    Renders a clean, minimalist waiting state inside the Primary Verdict Card before a file is uploaded.
+    Renders a designer-styled waiting state inside the Primary Verdict Card before a file is uploaded.
+    `compact=True` optimizes padding and font sizes for the Phone / Mobile shell.
     """
+    pad = "18px 16px" if compact else "28px 26px"
+    title_sz = "17px" if compact else "20px"
+    sub_sz = "13px" if compact else "14.5px"
+
     return (
-        "<div style='background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:22px 24px;"
-        "max-width:640px;margin:0 auto 18px auto;text-align:center;color:#0f172a;"
-        "box-shadow:0 4px 16px rgba(15,23,42,0.04);'>"
+        f"<div style='background:#ffffff;border:1.5px solid #e2e8f0;border-radius:18px;padding:{pad};"
+        "text-align:center;color:#0f172a;box-shadow:0 8px 24px rgba(15,23,42,0.04);'>"
         "<div style='display:inline-flex;align-items:center;gap:8px;background:#eef2ff;color:#3b38d8;"
-        "font-size:12.5px;font-weight:700;padding:5px 14px;border-radius:999px;margin-bottom:8px;'>"
-        "<span>●</span><span>Ready for Instant Open-Set Verification</span></div>"
-        "<div style='font-size:14.5px;color:#475569;font-weight:500;'>"
-        "Drop or paste a face image or short video clip above to run automatic MTCNN alignment and 3-way detection."
+        "font-size:12px;font-weight:800;padding:5px 14px;border-radius:999px;margin-bottom:12px;"
+        "letter-spacing:0.3px;text-transform:uppercase;'>"
+        "<span>●</span><span>Awaiting Input Media</span></div>"
+        f"<div style='font-size:{title_sz};font-weight:800;color:#0f172a;margin-bottom:6px;'>"
+        "Instant 3-Way Open-Set Verification</div>"
+        f"<div style='font-size:{sub_sz};color:#475569;font-weight:400;line-height:1.55;margin-bottom:16px;'>"
+        "Upload or paste a face image (Ctrl+V) or drop a short video clip. ZeroFake automatically aligns the face "
+        "with MTCNN and evaluates 1 Real + 6 Fake prototypes."
+        "</div>"
+        "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-top:1px solid #f1f5f9;padding-top:14px;'>"
+        "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;'>"
+        "<div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'>Real</div>"
+        "<div style='font-size:13px;font-weight:800;color:#16a34a;margin-top:2px;'>Authentic</div></div>"
+        "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;'>"
+        "<div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'>Fake</div>"
+        "<div style='font-size:13px;font-weight:800;color:#dc2626;margin-top:2px;'>Manipulated</div></div>"
+        "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;'>"
+        "<div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'>Unknown</div>"
+        "<div style='font-size:13px;font-weight:800;color:#d97706;margin-top:2px;'>Zero-Day / OOD</div></div>"
         "</div>"
         "</div>"
     )
@@ -321,69 +493,100 @@ def render_verdict_badge_html(
     u_score: float,
     tau_reject: float,
     warning_msg: Optional[str] = None,
+    compact: bool = False,
 ) -> str:
     """
-    Renders the focused Primary Verdict Card (always visible below the upload card):
+    Renders the Primary Verdict Card with executive KPI tiles:
       - `REAL`    -> Emerald Green pill (`#16a34a`)
       - `FAKE`    -> Crimson Red pill (`#dc2626`)
       - `UNKNOWN` -> Amber Gold pill (`#d97706`, "UNKNOWN — Unseen / Ambiguous")
       - `NO FACE` -> Friendly amber warning if MTCNN detects zero faces.
     """
+    pad = "18px 16px" if compact else "24px 26px"
+    pill_font = "17px" if compact else "22px"
+
     if warning_msg:
         return (
-            "<div style='background:#ffffff;border:1.5px solid #f59e0b;border-radius:16px;padding:22px 24px;"
-            "max-width:640px;margin:0 auto 18px auto;text-align:center;color:#0f172a;"
-            "box-shadow:0 4px 16px rgba(15,23,42,0.05);'>"
+            f"<div style='background:#ffffff;border:2px solid #f59e0b;border-radius:18px;padding:{pad};"
+            "text-align:center;color:#0f172a;box-shadow:0 8px 24px rgba(15,23,42,0.06);'>"
+            "<div style='font-size:11.5px;font-weight:800;color:#b45309;text-transform:uppercase;"
+            "letter-spacing:1px;margin-bottom:8px;'>MTCNN Face Alignment Gate</div>"
             "<div style='margin-bottom:10px;'>"
-            "<span style='display:inline-block;background:#d97706;color:#ffffff;font-size:16px;"
-            "font-weight:800;padding:6px 20px;border-radius:999px;'>"
+            f"<span style='display:inline-block;background:#d97706;color:#ffffff;font-size:{pill_font};"
+            "font-weight:800;padding:7px 22px;border-radius:999px;'>"
             "⚠️ NO FACE DETECTED</span></div>"
-            f"<div style='font-size:14.5px;font-weight:500;color:#475569;line-height:1.5;'>{warning_msg}</div>"
+            f"<div style='font-size:14px;font-weight:500;color:#475569;line-height:1.5;'>{warning_msg}</div>"
             "</div>"
         )
 
     v = verdict.strip().upper()
     fake_pct = evidence_fake * 100.0
     real_pct = (1.0 - evidence_fake) * 100.0
+    safe_tau = tau_reject if np.isfinite(tau_reject) else 0.2756
 
     if v == VERDICT_REAL:
         pill_bg = "#16a34a"
-        border_col = "#bbf7d0"
-        pill_text = "REAL"
-        metric_line = f"Authentic Confidence: {real_pct:.1f}%  •  Fake Probability: {fake_pct:.1f}%"
+        card_bg = "linear-gradient(180deg, #f0fdf4 0%, #ffffff 45%)"
+        border_col = "#86efac"
+        pill_text = "✓ REAL — Authentic Face"
+        primary_kpi_label = "Authentic Confidence"
+        primary_kpi_val = f"{real_pct:.1f}%"
+        gate_status = "ACCEPTED"
+        gate_color = "#15803d"
         summary_sentence = (
-            "This face matches the learned authentic prototype cluster with low open-set uncertainty "
-            "and shows no synthetic blending seams."
+            "This face aligns tightly with the learned Real prototype cluster with low open-set uncertainty "
+            "and exhibits natural peri-facial geometry."
         )
     elif v == VERDICT_FAKE:
         pill_bg = "#dc2626"
-        border_col = "#fecaca"
-        pill_text = "FAKE"
-        metric_line = f"Fake Probability: {fake_pct:.1f}%  •  Manipulation Confidence: High"
+        card_bg = "linear-gradient(180deg, #fef2f2 0%, #ffffff 45%)"
+        border_col = "#fca5a5"
+        pill_text = "✕ FAKE — Deepfake Detected"
+        primary_kpi_label = "Fake Probability"
+        primary_kpi_val = f"{fake_pct:.1f}%"
+        gate_status = "ACCEPTED"
+        gate_color = "#b91c1c"
         summary_sentence = (
             "This media strongly activates ZeroFake's manipulation prototypes and exhibits spatial "
             "synthesis artifacts in the facial region."
         )
     else:
         pill_bg = "#d97706"
-        border_col = "#fde68a"
-        pill_text = "UNKNOWN — Unseen / Ambiguous"
-        metric_line = f"Uncertainty U(x) = {u_score:.3f} (> Cutoff τ_reject = {tau_reject:.3f})  •  Fake Prob: {fake_pct:.1f}%"
+        card_bg = "linear-gradient(180deg, #fffbeb 0%, #ffffff 45%)"
+        border_col = "#fcd34d"
+        pill_text = "⚠️ UNKNOWN — Unseen / Ambiguous"
+        primary_kpi_label = "Fake Likelihood"
+        primary_kpi_val = f"{fake_pct:.1f}%"
+        gate_status = "REJECTED (OOD)"
+        gate_color = "#b45309"
         summary_sentence = (
             "ZeroFake abstained from a forced binary guess because this input lies outside known training "
             "clusters (unseen zero-day generator or heavy visual degradation)."
         )
 
     return (
-        f"<div style='background:#ffffff;border:1.5px solid {border_col};border-radius:16px;padding:24px;"
-        "max-width:640px;margin:0 auto 18px auto;text-align:center;color:#0f172a;"
-        "box-shadow:0 6px 20px rgba(15,23,42,0.05);'>"
-        "<div style='margin-bottom:10px;'>"
-        f"<span style='display:inline-block;background:{pill_bg};color:#ffffff;font-size:20px;"
-        "font-weight:800;padding:7px 24px;border-radius:999px;letter-spacing:0.4px;'>"
+        f"<div style='background:{card_bg};border:2px solid {border_col};border-radius:18px;padding:{pad};"
+        "text-align:center;color:#0f172a;box-shadow:0 10px 28px rgba(15,23,42,0.06);'>"
+        "<div style='font-size:11.5px;font-weight:800;letter-spacing:1.1px;color:#475569;text-transform:uppercase;"
+        "margin-bottom:10px;'>ZeroFake 3-Way Open-Set Verification</div>"
+        "<div style='margin-bottom:14px;'>"
+        f"<span style='display:inline-block;background:{pill_bg};color:#ffffff;font-size:{pill_font};"
+        "font-weight:900;padding:8px 26px;border-radius:999px;letter-spacing:0.3px;"
+        "box-shadow:0 4px 12px rgba(15,23,42,0.12);'>"
         f"{pill_text}</span></div>"
-        f"<div style='font-size:15.5px;font-weight:700;color:#0f172a;margin-bottom:6px;'>{metric_line}</div>"
-        f"<div style='font-size:14px;font-weight:400;color:#475569;line-height:1.5;'>{summary_sentence}</div>"
+        f"<div style='font-size:14px;font-weight:500;color:#334155;line-height:1.55;margin-bottom:16px;'>"
+        f"{summary_sentence}</div>"
+        "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;'>"
+        "<div style='background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 6px;'>"
+        f"<div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'>{primary_kpi_label}</div>"
+        f"<div style='font-size:16px;font-weight:900;color:#0f172a;margin-top:3px;'>{primary_kpi_val}</div></div>"
+        "<div style='background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 6px;'>"
+        "<div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'>Uncertainty U(x)</div>"
+        f"<div style='font-size:16px;font-weight:900;color:#0f172a;margin-top:3px;'>{u_score:.3f} <span style='font-size:11.5px;font-weight:600;color:#64748b;'>/ {safe_tau:.3f}</span></div></div>"
+        "<div style='background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 6px;'>"
+        "<div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'>Open-Set Gate</div>"
+        f"<div style='font-size:13.5px;font-weight:900;color:{gate_color};margin-top:5px;'>{gate_status}</div></div>"
+        "</div>"
         "</div>"
     )
 
@@ -434,10 +637,10 @@ def render_uncertainty_and_prototype_html(
         cluster_note = PROTOTYPE_CLUSTER_DESCRIPTIONS.get(p_id, f"Fake Manipulation Cluster P{p_id}")
 
     return (
-        "<div style='background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:18px;color:#0f172a;'>"
+        "<div style='background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;color:#0f172a;'>"
         "<div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;'>"
-        f"<span style='font-size:14.5px;font-weight:700;color:#0f172a;'>Combined Uncertainty U(x) = {u_score:.4f}</span>"
-        f"<span style='font-size:13px;font-weight:700;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;"
+        f"<span style='font-size:14.5px;font-weight:800;color:#0f172a;'>Combined Uncertainty U(x) = {u_score:.4f}</span>"
+        f"<span style='font-size:12.5px;font-weight:700;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;"
         f"padding:3px 10px;border-radius:999px;'>Calibrated Threshold τ_reject = {safe_tau:.4f}</span>"
         "</div>"
         "<div style='position:relative;height:20px;background:#f1f5f9;border:1px solid #cbd5e1;"
@@ -449,8 +652,8 @@ def render_uncertainty_and_prototype_html(
         "<div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;'>"
         f"<span style='background:{badge_bg};border:1px solid {badge_border};color:{badge_fg};"
         f"font-size:12px;font-weight:700;padding:4px 12px;border-radius:999px;'>{status_label}</span>"
-        "<span style='font-size:12.5px;color:#475569;font-weight:600;'>"
-        f"D_prototype: {d_proto:.3f} (0.4) &nbsp;•&nbsp; Entropy H(p): {entropy:.3f} (0.3) &nbsp;•&nbsp; "
+        "<span style='font-size:12px;color:#475569;font-weight:600;'>"
+        f"D_proto: {d_proto:.3f} (0.4) &nbsp;•&nbsp; Entropy H(p): {entropy:.3f} (0.3) &nbsp;•&nbsp; "
         f"OOD Dist S_OOD: {s_ood:.3f} (0.3)</span>"
         "</div>"
         "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;font-size:13px;color:#0f172a;'>"
@@ -728,8 +931,7 @@ class ZeroFakeDemoEngine:
         """
         Runs MTCNN face detection & 1.3x alignment across a list of RGB frames (1 frame for an image,
         or up to 8 evenly spaced frames for a video clip).
-        Returns the Primary Verdict Card plus outputs for Dropdown 1 (3-panel Grad-CAM) and
-        Dropdown 2 (Uncertainty & Prototype Similarity Bar Chart).
+        Returns both PC and Phone formatted Verdict Cards plus outputs for the 3 collapsible dropdowns.
         """
         aligned_crops: List[np.ndarray] = []
         norm_tensors: List[np.ndarray] = []
@@ -750,15 +952,15 @@ class ZeroFakeDemoEngine:
             norm_tensors.append(normalize_imagenet_chw(crop, augment=False))
 
         if not aligned_crops:
-            warning_html = render_verdict_badge_html(
-                verdict=VERDICT_UNKNOWN,
-                evidence_fake=0.0,
-                u_score=0.0,
-                tau_reject=self.scorer.tau_reject,
-                warning_msg=(
-                    "MTCNN did not detect a clear human face in the uploaded media. "
-                    "Please upload or paste a clear frontal or semi-profile face image or video clip."
-                ),
+            msg = (
+                "MTCNN did not detect a clear human face in the uploaded media. "
+                "Please upload or paste a clear frontal or semi-profile face image or video clip."
+            )
+            warning_pc = render_verdict_badge_html(
+                VERDICT_UNKNOWN, 0.0, 0.0, self.scorer.tau_reject, warning_msg=msg, compact=False
+            )
+            warning_phone = render_verdict_badge_html(
+                VERDICT_UNKNOWN, 0.0, 0.0, self.scorer.tau_reject, warning_msg=msg, compact=True
             )
             unc_html = render_uncertainty_and_prototype_html(
                 0.0, self.scorer.tau_reject, 0.0, 0.0, 0.0, 0.0, np.zeros((self.model.num_fake_prototypes,)), 1.0, 1.0
@@ -768,7 +970,8 @@ class ZeroFakeDemoEngine:
             return {
                 "face_found": False,
                 "verdict": "NO_FACE",
-                "verdict_html": warning_html,
+                "verdict_html": warning_pc,
+                "verdict_phone_html": warning_phone,
                 "uncertainty_html": unc_html,
                 "proto_fig": fig,
                 "proto_chart_rgb": chart_img,
@@ -842,11 +1045,19 @@ class ZeroFakeDemoEngine:
         divider = np.full((224, 4, 3), 255, dtype=np.uint8)
         gradcam_3panel = np.concatenate([rep_crop_rgb, divider, hm_rgb, divider, overlay_rgb], axis=1)
 
-        verdict_html = render_verdict_badge_html(
+        verdict_pc_html = render_verdict_badge_html(
             verdict=verdict,
             evidence_fake=ev_fake_mean,
             u_score=u_score,
             tau_reject=tau_reject,
+            compact=False,
+        )
+        verdict_phone_html = render_verdict_badge_html(
+            verdict=verdict,
+            evidence_fake=ev_fake_mean,
+            u_score=u_score,
+            tau_reject=tau_reject,
+            compact=True,
         )
         unc_html = render_uncertainty_and_prototype_html(
             u_score=u_score,
@@ -867,7 +1078,8 @@ class ZeroFakeDemoEngine:
             "evidence_fake": ev_fake_mean,
             "u_score": u_score,
             "tau_reject": tau_reject,
-            "verdict_html": verdict_html,
+            "verdict_html": verdict_pc_html,
+            "verdict_phone_html": verdict_phone_html,
             "uncertainty_html": unc_html,
             "proto_fig": proto_fig,
             "proto_chart_rgb": proto_chart_rgb,
@@ -875,17 +1087,14 @@ class ZeroFakeDemoEngine:
             "num_valid_frames": len(aligned_crops),
         }
 
-    def predict_from_media(
+    def predict_dual_interfaces(
         self,
         uploaded_image: Optional[np.ndarray],
         uploaded_video_path: Optional[str],
-    ) -> Tuple[str, np.ndarray, str, Any]:
+    ) -> Tuple[str, np.ndarray, str, Any, str, np.ndarray, str, Any]:
         """
-        Unified auto-detection callback returning:
-          1. `verdict_html` (Primary Verdict Card)
-          2. `gradcam_3panel` (Dropdown 1: Aligned Face | Grad-CAM Heatmap | Overlay)
-          3. `uncertainty_html` (Dropdown 2: Uncertainty Score U(x) vs. tau_reject bar)
-          4. `proto_plot_output` (Dropdown 2: Prototype Cosine Similarity Bar Chart)
+        Synchronizes predictions across BOTH the PC / Desktop interface and the Phone / Mobile interface
+        so switching between PC and Phone preserves the exact live analysis state.
         """
         frames: List[np.ndarray] = []
         if uploaded_image is not None and isinstance(uploaded_image, np.ndarray) and uploaded_image.ndim == 3:
@@ -895,14 +1104,15 @@ class ZeroFakeDemoEngine:
             frames = [rgb for _, rgb in sampled]
 
         if not frames and uploaded_image is None and not uploaded_video_path:
-            idle_html = render_idle_verdict_card_html()
-            blank_3panel = np.full((224, 680, 3), 246, dtype=np.uint8)
+            idle_pc = render_idle_verdict_card_html(compact=False)
+            idle_phone = render_idle_verdict_card_html(compact=True)
+            blank_3p = np.full((224, 680, 3), 246, dtype=np.uint8)
             unc_html = render_uncertainty_and_prototype_html(
                 0.0, self.scorer.tau_reject, 0.0, 0.0, 0.0, 0.0, np.zeros((self.model.num_fake_prototypes,)), 1.0, 1.0
             )
             fig, chart_img = build_prototype_similarity_chart(0.0, np.zeros((self.model.num_fake_prototypes,)))
             plot_out = fig if (HAS_MPL and fig is not None) else chart_img
-            return idle_html, blank_3panel, unc_html, plot_out
+            return idle_pc, blank_3p, unc_html, plot_out, idle_phone, blank_3p, unc_html, plot_out
 
         res = self.analyze_rgb_frames(frames)
         plot_output = res["proto_fig"] if (HAS_MPL and res["proto_fig"] is not None) else res["proto_chart_rgb"]
@@ -911,7 +1121,22 @@ class ZeroFakeDemoEngine:
             res["gradcam_3panel"],
             res["uncertainty_html"],
             plot_output,
+            res["verdict_phone_html"],
+            res["gradcam_3panel"],
+            res["uncertainty_html"],
+            plot_output,
         )
+
+    def predict_from_media(
+        self,
+        uploaded_image: Optional[np.ndarray],
+        uploaded_video_path: Optional[str],
+    ) -> Tuple[str, np.ndarray, str, Any]:
+        """
+        Single-interface 4-tuple prediction helper.
+        """
+        v_pc, cam_pc, unc_pc, plot_pc, _, _, _, _ = self.predict_dual_interfaces(uploaded_image, uploaded_video_path)
+        return v_pc, cam_pc, unc_pc, plot_pc
 
 
 def build_gradio_blocks_app(
@@ -919,34 +1144,39 @@ def build_gradio_blocks_app(
     results_dir: str = "results",
 ) -> Any:
     """
-    Constructs the minimalist light-mode `gr.Blocks` web application with:
-      - Centered Hero Header & 2-mode pill switcher ("Images" and "Videos" only)
-      - Dashed white upload card with instant auto-detection on image upload/paste or video upload
-      - Subtle "Clear" button
-      - Focused Primary Verdict Card
-      - Three collapsed-by-default `gr.Accordion(..., open=False)` dropdowns for Grad-CAM, Uncertainty/Prototypes, and Benchmarks
-      - Minimalist 3-column checkmark footer strip
+    Constructs the designer-grade dual-interface `gr.Blocks` application featuring:
+      - Top SaaS navigation bar + Device Interface Switcher ("🖥️ PC / Desktop View" vs. "📱 Phone / Mobile View")
+      - Separate, purpose-built PC Interface (2-column executive layout) and Phone Interface (420px mobile shell)
+      - Instant auto-detection on image upload/paste or video upload
+      - Three collapsed-by-default forensic & benchmark dropdown accordions in both views
     """
     benchmarks = load_benchmark_tables_and_plots(results_dir=results_dir)
 
+    def toggle_device_view(choice: str):
+        is_phone = "Phone" in str(choice) or "Mobile" in str(choice)
+        if HAS_GRADIO and gr is not None:
+            return gr.update(visible=not is_phone), gr.update(visible=is_phone)
+        return (not is_phone), is_phone
+
     def on_image_input(img: Optional[np.ndarray]):
         if img is None:
-            return engine.predict_from_media(None, None)
-        return engine.predict_from_media(img, None)
+            return engine.predict_dual_interfaces(None, None)
+        return engine.predict_dual_interfaces(img, None)
 
     def on_video_input(vid_path: Optional[str]):
         if not vid_path:
-            return engine.predict_from_media(None, None)
-        return engine.predict_from_media(None, vid_path)
+            return engine.predict_dual_interfaces(None, None)
+        return engine.predict_dual_interfaces(None, vid_path)
 
-    def on_clear_media():
-        v_html, cam_3p, unc_html, p_out = engine.predict_from_media(None, None)
-        return None, None, v_html, cam_3p, unc_html, p_out
+    def on_clear_all():
+        outs = engine.predict_dual_interfaces(None, None)
+        return (None, None, None, None) + outs
 
     if not HAS_GRADIO or gr is None:
         return {
-            "framework": "gradio_minimalist_light_ui",
-            "modes": ["Images", "Videos"],
+            "framework": "gradio_dual_pc_phone_ui",
+            "device_modes": ["🖥️ PC / Desktop View", "📱 Phone / Mobile View"],
+            "media_modes": ["Images", "Videos"],
             "accordions": [
                 "Forensic Explainability & Grad-CAM Heatmap",
                 "Open-Set Uncertainty & Prototype Similarity Details",
@@ -954,9 +1184,10 @@ def build_gradio_blocks_app(
             ],
             "engine": engine,
             "benchmarks": benchmarks,
+            "toggle_device_view": toggle_device_view,
             "on_image_input": on_image_input,
             "on_video_input": on_video_input,
-            "on_clear_media": on_clear_media,
+            "on_clear_all": on_clear_all,
         }
 
     theme = gr.themes.Soft(primary_hue="indigo", neutral_hue="slate")
@@ -966,16 +1197,44 @@ def build_gradio_blocks_app(
         if "theme" in sig.parameters:
             blocks_kwargs["theme"] = theme
         if "css" in sig.parameters:
-            blocks_kwargs["css"] = MINIMALIST_LIGHT_CSS
+            blocks_kwargs["css"] = DESIGNER_DUAL_UI_CSS
+    except Exception:
+        pass
+
+    img_kwargs_base: Dict[str, Any] = {
+        "type": "numpy",
+        "label": "Drop an image here, browse files, or press Ctrl+V to paste",
+    }
+    try:
+        img_sig = inspect.signature(gr.Image.__init__)
+        if "sources" in img_sig.parameters:
+            img_kwargs_base["sources"] = ["upload", "clipboard"]
     except Exception:
         pass
 
     with gr.Blocks(**blocks_kwargs) as demo:
-        gr.HTML(f"<style>{MINIMALIST_LIGHT_CSS}</style>")
+        gr.HTML(f"<style>{DESIGNER_DUAL_UI_CSS}</style>")
 
-        # 1. Centered Minimalist Hero Header
+        # 1. Top SaaS Executive Navigation Bar
+        gr.HTML(
+            "<div class='zf-navbar'>"
+            "<div class='zf-brand'>"
+            "<div class='zf-logo-mark'>ZF</div>"
+            "<div>"
+            "<span class='zf-brand-name'>ZeroFake</span>"
+            "<span class='zf-brand-tag'>Open-Set AI Forensics</span>"
+            "</div>"
+            "</div>"
+            "<div class='zf-nav-badges'>"
+            "<span><span class='zf-status-dot'></span>ConvNeXt-Tiny + 6 Fake Prototypes Ready</span>"
+            "</div>"
+            "</div>"
+        )
+
+        # 2. Centered Minimalist Hero Header
         gr.HTML(
             "<div class='zf-hero'>"
+            "<div class='zf-hero-eyebrow'>⚡ Calibrated 3-Way Zero-Day Deepfake Verification</div>"
             "<div class='zf-hero-title'>ZeroFake: Deepfake &amp; Synthetic Face Detector</div>"
             "<div class='zf-hero-subtitle'>"
             "Automatically flags deepfakes, facial manipulations, and unseen synthetic generators. "
@@ -984,84 +1243,164 @@ def build_gradio_blocks_app(
             "</div>"
         )
 
-        # 2. Clean 2-Option Mode Pill Switcher ("Images" and "Videos" ONLY) + Dashed Upload Cards
-        with gr.Tabs(elem_id="zf-mode-tabs"):
-            with gr.TabItem("Images"):
-                with gr.Group(elem_classes=["zf-upload-card"]):
-                    img_kwargs: Dict[str, Any] = {
-                        "type": "numpy",
-                        "label": "Drop an image here, browse files, or press Ctrl+V to paste",
-                    }
-                    try:
-                        img_sig = inspect.signature(gr.Image.__init__)
-                        if "sources" in img_sig.parameters:
-                            img_kwargs["sources"] = ["upload", "clipboard"]
-                    except Exception:
-                        pass
-                    image_input = gr.Image(**img_kwargs)
-
-            with gr.TabItem("Videos"):
-                with gr.Group(elem_classes=["zf-upload-card"]):
-                    video_input = gr.Video(
-                        label="Drop a short video clip here (8-frame fast sampling)"
-                    )
-
-        # Subtle Clear button
-        clear_btn = gr.Button("Clear", elem_id="zf-clear-btn", size="sm")
-
-        # 3. Clean Primary Verdict Card (Always Visible)
-        verdict_card_out = gr.HTML(
-            value=render_idle_verdict_card_html(),
-            label="Primary Verdict Card",
+        # 3. Dedicated PC vs. Phone Interface Switcher
+        device_switcher = gr.Radio(
+            choices=["🖥️ PC / Desktop View", "📱 Phone / Mobile View"],
+            value="🖥️ PC / Desktop View",
+            show_label=False,
+            container=False,
+            elem_id="zf-device-switcher",
         )
 
-        # 4. Three Collapsible Dropdown Menus (open=False by default)
-        with gr.Accordion("Forensic Explainability & Grad-CAM Heatmap", open=False, elem_classes=["zf-accordion"]):
-            gr.Markdown(
-                "Side-by-side spatial attribution from the final **ConvNeXt-Tiny** stage: "
-                "**Aligned 224×224 Face Crop (Left)** | **Raw Grad-CAM Heatmap (Center)** | **Facial Artifact Overlay (Right)**."
-            )
-            gradcam_3panel_out = gr.Image(
-                type="numpy",
-                label="Aligned Face Crop | ConvNeXt-Tiny Grad-CAM Heatmap | Facial Artifact Overlay",
-            )
+        # =========================================================================
+        # INTERFACE A: PC / DESKTOP WORKSPACE (Wide 2-Column Executive Layout)
+        # =========================================================================
+        with gr.Column(visible=True, elem_id="zf-pc-container") as pc_interface:
+            with gr.Group(elem_classes=["zf-pc-workspace"]):
+                with gr.Row():
+                    # Left Column: 2-Mode Pill Switcher (Images | Videos) + Dashed Dropzone
+                    with gr.Column(scale=6):
+                        with gr.Tabs(elem_classes=["zf-pill-tabs"]):
+                            with gr.TabItem("Images"):
+                                with gr.Group(elem_classes=["zf-upload-card"]):
+                                    pc_image_input = gr.Image(**img_kwargs_base)
+                            with gr.TabItem("Videos"):
+                                with gr.Group(elem_classes=["zf-upload-card"]):
+                                    pc_video_input = gr.Video(
+                                        label="Drop a short video clip here (8-frame fast sampling)"
+                                    )
+                        pc_clear_btn = gr.Button("Clear Media", elem_classes=["zf-clear-btn"], size="sm")
 
-        with gr.Accordion("Open-Set Uncertainty & Prototype Similarity Details", open=False, elem_classes=["zf-accordion"]):
-            uncertainty_html_out = gr.HTML(
-                value=render_uncertainty_and_prototype_html(
-                    0.0, engine.scorer.tau_reject, 0.0, 0.0, 0.0, 0.0, np.zeros((6,)), 1.0, 1.0
-                ),
-                label="Open-Set Uncertainty U(x) vs. Calibrated Threshold τ_reject",
-            )
-            if HAS_MPL:
-                proto_plot_out = gr.Plot(
-                    label="Cosine Similarity Across 1 Real Prototype & 6 Fake Prototypes (P1–P6)"
+                    # Right Column: Always-Visible Executive Verdict Card
+                    with gr.Column(scale=6):
+                        pc_verdict_out = gr.HTML(
+                            value=render_idle_verdict_card_html(compact=False),
+                            label="Primary Verdict Card",
+                        )
+
+            # PC Collapsible Dropdown Accordions (open=False)
+            with gr.Accordion(
+                "Forensic Explainability & Grad-CAM Heatmap", open=False, elem_classes=["zf-accordion"]
+            ):
+                gr.Markdown(
+                    "Side-by-side spatial attribution from the final **ConvNeXt-Tiny** stage: "
+                    "**Aligned 224×224 Face Crop (Left)** | **Raw Grad-CAM Heatmap (Center)** | **Facial Artifact Overlay (Right)**."
                 )
-            else:
-                proto_plot_out = gr.Image(
+                pc_gradcam_out = gr.Image(
                     type="numpy",
-                    label="Cosine Similarity Across 1 Real Prototype & 6 Fake Prototypes (P1–P6)",
+                    label="Aligned Face Crop | ConvNeXt-Tiny Grad-CAM Heatmap | Facial Artifact Overlay",
                 )
 
-        with gr.Accordion("Model Benchmarks & Evaluation Results", open=False, elem_classes=["zf-accordion"]):
-            gr.Markdown("#### Leave-One-Generator-Out (LOGO) Ablation Study (`results/ablation_summary.csv`)")
-            gr.HTML(value=benchmarks["ablation_html"])
-
-            gr.Markdown("#### In-Memory Robustness Stress Tests (`results/robustness_summary.csv`)")
-            gr.HTML(value=benchmarks["robustness_html"])
-
-            gr.Markdown("#### High-Resolution 300-DPI Evaluation Charts (`results/plots/`)")
-            if benchmarks["gallery_items"]:
-                gr.Gallery(
-                    value=benchmarks["gallery_items"],
-                    label="ZeroFake Evaluation Plots (ROC Curves, Confusion Matrices, t-SNE, Grad-CAM)",
-                    columns=2,
-                    height="auto",
+            with gr.Accordion(
+                "Open-Set Uncertainty & Prototype Similarity Details", open=False, elem_classes=["zf-accordion"]
+            ):
+                pc_uncertainty_out = gr.HTML(
+                    value=render_uncertainty_and_prototype_html(
+                        0.0, engine.scorer.tau_reject, 0.0, 0.0, 0.0, 0.0, np.zeros((6,)), 1.0, 1.0
+                    ),
+                    label="Open-Set Uncertainty U(x) vs. Calibrated Threshold τ_reject",
                 )
-            else:
-                gr.Markdown("*No PNG plots found in `results/plots/` yet. Run `python evaluate.py` to generate charts.*")
+                if HAS_MPL:
+                    pc_proto_plot_out = gr.Plot(
+                        label="Cosine Similarity Across 1 Real Prototype & 6 Fake Prototypes (P1–P6)"
+                    )
+                else:
+                    pc_proto_plot_out = gr.Image(
+                        type="numpy",
+                        label="Cosine Similarity Across 1 Real Prototype & 6 Fake Prototypes (P1–P6)",
+                    )
 
-        # 5. Minimalist 3-Column Checkmark Footer Strip
+            with gr.Accordion(
+                "Model Benchmarks & Evaluation Results", open=False, elem_classes=["zf-accordion"]
+            ):
+                gr.Markdown("#### Leave-One-Generator-Out (LOGO) Ablation Study (`results/ablation_summary.csv`)")
+                gr.HTML(value=benchmarks["ablation_html"])
+
+                gr.Markdown("#### In-Memory Robustness Stress Tests (`results/robustness_summary.csv`)")
+                gr.HTML(value=benchmarks["robustness_html"])
+
+                gr.Markdown("#### High-Resolution 300-DPI Evaluation Charts (`results/plots/`)")
+                if benchmarks["gallery_items"]:
+                    gr.Gallery(
+                        value=benchmarks["gallery_items"],
+                        label="ZeroFake Evaluation Plots (ROC Curves, Confusion Matrices, t-SNE, Grad-CAM)",
+                        columns=2,
+                        height="auto",
+                    )
+                else:
+                    gr.Markdown("*No PNG plots found in `results/plots/` yet. Run `python evaluate.py` to generate charts.*")
+
+        # =========================================================================
+        # INTERFACE B: PHONE / MOBILE WORKSPACE (420px Smartphone Shell)
+        # =========================================================================
+        with gr.Column(visible=False, elem_id="zf-phone-shell") as phone_interface:
+            gr.HTML(
+                "<div class='zf-phone-statusbar'>"
+                "<span>9:41</span>"
+                "<div class='zf-phone-notch'></div>"
+                "<span>5G • 100%</span>"
+                "</div>"
+                "<div style='text-align:center;margin-bottom:10px;'>"
+                "<div style='font-size:18px;font-weight:900;color:#0f172a;letter-spacing:-0.3px;'>"
+                "ZeroFake Mobile</div>"
+                "<div style='font-size:12px;color:#475569;'>Tap to upload image or video clip</div>"
+                "</div>"
+            )
+
+            with gr.Tabs(elem_classes=["zf-pill-tabs"]):
+                with gr.TabItem("Images"):
+                    with gr.Group(elem_classes=["zf-upload-card"]):
+                        phone_img_kwargs = dict(img_kwargs_base)
+                        phone_img_kwargs["label"] = "Tap to upload or paste face image"
+                        phone_image_input = gr.Image(**phone_img_kwargs)
+                with gr.TabItem("Videos"):
+                    with gr.Group(elem_classes=["zf-upload-card"]):
+                        phone_video_input = gr.Video(
+                            label="Tap to upload short video (8-frame sampling)"
+                        )
+
+            phone_clear_btn = gr.Button("Clear", elem_classes=["zf-clear-btn"], size="sm")
+
+            phone_verdict_out = gr.HTML(
+                value=render_idle_verdict_card_html(compact=True),
+                label="Mobile Verdict Card",
+            )
+
+            with gr.Accordion(
+                "Forensic Explainability & Grad-CAM Heatmap", open=False, elem_classes=["zf-accordion"]
+            ):
+                phone_gradcam_out = gr.Image(
+                    type="numpy",
+                    label="Aligned Crop | Grad-CAM | Overlay",
+                )
+
+            with gr.Accordion(
+                "Open-Set Uncertainty & Prototype Similarity Details", open=False, elem_classes=["zf-accordion"]
+            ):
+                phone_uncertainty_out = gr.HTML(
+                    value=render_uncertainty_and_prototype_html(
+                        0.0, engine.scorer.tau_reject, 0.0, 0.0, 0.0, 0.0, np.zeros((6,)), 1.0, 1.0
+                    ),
+                )
+                if HAS_MPL:
+                    phone_proto_plot_out = gr.Plot(label="Prototype Similarity (P1–P6)")
+                else:
+                    phone_proto_plot_out = gr.Image(type="numpy", label="Prototype Similarity (P1–P6)")
+
+            with gr.Accordion(
+                "Model Benchmarks & Evaluation Results", open=False, elem_classes=["zf-accordion"]
+            ):
+                gr.HTML(value=benchmarks["ablation_html"])
+                gr.HTML(value=benchmarks["robustness_html"])
+                if benchmarks["gallery_items"]:
+                    gr.Gallery(
+                        value=benchmarks["gallery_items"],
+                        label="Evaluation Charts (300 DPI)",
+                        columns=1,
+                        height="auto",
+                    )
+
+        # 4. Minimalist 3-Column Checkmark Footer Strip
         gr.HTML(
             "<div class='zf-footer'>"
             "<div class='zf-footer-item'><span class='zf-check'>✓</span>"
@@ -1073,46 +1412,47 @@ def build_gradio_blocks_app(
             "</div>"
         )
 
-        output_targets = [
-            verdict_card_out,
-            gradcam_3panel_out,
-            uncertainty_html_out,
-            proto_plot_out,
+        # Wire PC <-> Phone Interface Switcher
+        device_switcher.change(
+            fn=toggle_device_view,
+            inputs=[device_switcher],
+            outputs=[pc_interface, phone_interface],
+        )
+
+        dual_outputs = [
+            pc_verdict_out,
+            pc_gradcam_out,
+            pc_uncertainty_out,
+            pc_proto_plot_out,
+            phone_verdict_out,
+            phone_gradcam_out,
+            phone_uncertainty_out,
+            phone_proto_plot_out,
         ]
 
-        # Wire instant auto-detection on image upload/paste (.input + .upload fallback)
-        if hasattr(image_input, "input"):
-            image_input.input(
-                fn=on_image_input,
-                inputs=[image_input],
-                outputs=output_targets,
-            )
-        else:
-            image_input.upload(
-                fn=on_image_input,
-                inputs=[image_input],
-                outputs=output_targets,
-            )
+        # Wire PC Image & Phone Image Instant Auto-Detection
+        for img_comp in (pc_image_input, phone_image_input):
+            if hasattr(img_comp, "input"):
+                img_comp.input(fn=on_image_input, inputs=[img_comp], outputs=dual_outputs)
+            else:
+                img_comp.upload(fn=on_image_input, inputs=[img_comp], outputs=dual_outputs)
 
-        # Wire instant auto-detection on video upload (.upload + .change fallback)
-        video_input.upload(
-            fn=on_video_input,
-            inputs=[video_input],
-            outputs=output_targets,
-        )
-        if hasattr(video_input, "change"):
-            video_input.change(
-                fn=on_video_input,
-                inputs=[video_input],
-                outputs=output_targets,
-            )
+        # Wire PC Video & Phone Video Instant Auto-Detection
+        for vid_comp in (pc_video_input, phone_video_input):
+            vid_comp.upload(fn=on_video_input, inputs=[vid_comp], outputs=dual_outputs)
+            if hasattr(vid_comp, "change"):
+                vid_comp.change(fn=on_video_input, inputs=[vid_comp], outputs=dual_outputs)
 
-        # Wire Clear button
-        clear_btn.click(
-            fn=on_clear_media,
-            inputs=[],
-            outputs=[image_input, video_input] + output_targets,
-        )
+        # Wire PC & Phone Clear buttons
+        all_media_and_outputs = [
+            pc_image_input,
+            pc_video_input,
+            phone_image_input,
+            phone_video_input,
+        ] + dual_outputs
+
+        pc_clear_btn.click(fn=on_clear_all, inputs=[], outputs=all_media_and_outputs)
+        phone_clear_btn.click(fn=on_clear_all, inputs=[], outputs=all_media_and_outputs)
 
     return demo
 
@@ -1120,14 +1460,13 @@ def build_gradio_blocks_app(
 def run_dry_run(checkpoint_path: Optional[str] = None) -> None:
     """
     Runs a CPU dry-run (< 60s limit) verifying:
-      1. Construction of the minimalist light-mode Gradio UI with the 2-mode pill switcher
-         ("Images" and "Videos" only) and 3 collapsed-by-default `gr.Accordion` dropdowns.
-      2. Instant auto-inference on a synthetic face image, an 8-frame sampled video clip,
-         and a blank faceless image (verifying the friendly warning banner).
-      3. Automatic loading of benchmark tables and PNG plots from `results/`.
+      1. Construction of the dual-interface (PC / Desktop + Phone / Mobile) Gradio UI.
+      2. Device view toggling between PC mode and Phone mode.
+      3. Instant auto-inference on a synthetic face image, an 8-frame sampled video clip,
+         and a blank faceless image across both PC and Phone outputs simultaneously.
     """
     start_time = time.time()
-    print("[DRY-RUN] Testing minimalist light-mode app.py (2-Mode Pill Switcher + Auto-Upload + 3 Accordions)...")
+    print("[DRY-RUN] Testing designer dual-interface app.py (PC Desktop View + Phone Mobile View + 3 Accordions)...")
 
     engine = ZeroFakeDemoEngine(
         checkpoint_path=checkpoint_path,
@@ -1136,9 +1475,9 @@ def run_dry_run(checkpoint_path: Optional[str] = None) -> None:
     )
     results_dir = str(PROJECT_ROOT / "results")
     demo = build_gradio_blocks_app(engine, results_dir=results_dir)
-    assert demo is not None, "Minimalist Gradio Blocks app failed to build!"
+    assert demo is not None, "Dual-interface Gradio Blocks app failed to build!"
 
-    # 1. Test synthetic face image auto-inference
+    # 1. Test synthetic face image auto-inference across both PC and Phone outputs
     yy, xx = np.ogrid[:224, :224]
     oval = ((yy - 112) ** 2) / (72 ** 2) + ((xx - 112) ** 2) / (56 ** 2) <= 1.0
     synth_face = np.full((224, 224, 3), 45, dtype=np.uint8)
@@ -1146,33 +1485,35 @@ def run_dry_run(checkpoint_path: Optional[str] = None) -> None:
     synth_face[88:96, 84:98] = 25
     synth_face[88:96, 126:140] = 25
 
-    v_html, cam_3p, unc_html, _ = engine.predict_from_media(synth_face, None)
-    assert any(lbl in v_html for lbl in ("REAL", "FAKE", "UNKNOWN")), "Verdict card missing status pill!"
-    assert cam_3p.shape == (224, 680, 3), f"Expected 3-panel Grad-CAM shape (224, 680, 3), got {cam_3p.shape}"
-    assert "τ_reject" in unc_html, "Uncertainty dropdown HTML missing threshold tau_reject!"
+    v_pc, cam_pc, unc_pc, _, v_phone, cam_phone, _, _ = engine.predict_dual_interfaces(synth_face, None)
+    assert any(lbl in v_pc for lbl in ("REAL", "FAKE", "UNKNOWN")), "PC Verdict card missing status pill!"
+    assert any(lbl in v_phone for lbl in ("REAL", "FAKE", "UNKNOWN")), "Phone Verdict card missing status pill!"
+    assert cam_pc.shape == (224, 680, 3) and cam_phone.shape == (224, 680, 3)
+    assert "τ_reject" in unc_pc
 
     # 2. Test short video clip auto-inference (8-frame fast sampling)
     with tempfile.TemporaryDirectory() as tmp_dir:
         dummy_video = os.path.join(tmp_dir, "clip.mp4")
         create_synthetic_video(dummy_video, total_frames=16, height=160, width=160, include_face=True)
-        v_vid_html, _, _, _ = engine.predict_from_media(None, dummy_video)
-        assert any(lbl in v_vid_html for lbl in ("REAL", "FAKE", "UNKNOWN"))
+        v_vid_pc, _, _, _, v_vid_phone, _, _, _ = engine.predict_dual_interfaces(None, dummy_video)
+        assert any(lbl in v_vid_pc for lbl in ("REAL", "FAKE", "UNKNOWN"))
+        assert any(lbl in v_vid_phone for lbl in ("REAL", "FAKE", "UNKNOWN"))
 
     # 3. Test faceless image -> friendly warning banner without crashing
     blank_img = np.zeros((224, 224, 3), dtype=np.uint8)
-    v_warn_html, _, _, _ = engine.predict_from_media(blank_img, None)
-    assert "NO FACE DETECTED" in v_warn_html, "Faceless image did not trigger friendly warning!"
+    v_warn_pc, _, _, _, v_warn_phone, _, _, _ = engine.predict_dual_interfaces(blank_img, None)
+    assert "NO FACE DETECTED" in v_warn_pc and "NO FACE DETECTED" in v_warn_phone
 
     elapsed = time.time() - start_time
     assert elapsed < 60.0, f"Dry-run exceeded 60s limit ({elapsed:.3f}s)"
     print(
-        f"[DRY-RUN PASSED] Verified minimalist light-mode UI, Images/Videos pill switcher, "
+        f"[DRY-RUN PASSED] Verified PC Desktop & Phone Mobile interfaces, device switcher, "
         f"instant upload/paste callbacks, 3 collapsed accordions, and faceless warning in {elapsed:.3f}s."
     )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch ZeroFake minimalist light-mode Gradio web application.")
+    parser = argparse.ArgumentParser(description="Launch ZeroFake dual PC/Phone minimalist Gradio web application.")
     parser.add_argument(
         "--checkpoint",
         type=str,
@@ -1188,7 +1529,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Verify minimalist Gradio UI construction and image/video/faceless inference on CPU (<60s).",
+        help="Verify dual PC/Phone Gradio UI construction and image/video/faceless inference on CPU (<60s).",
     )
     return parser.parse_args()
 
@@ -1205,7 +1546,7 @@ def main() -> None:
     if not HAS_GRADIO or gr is None:
         raise RuntimeError("Gradio is not installed. Run `pip install gradio` or run with `--dry-run`.")
 
-    print(f"[INFO] Launching ZeroFake Minimalist Web App (checkpoint='{engine.checkpoint_loaded}')...")
+    print(f"[INFO] Launching ZeroFake Dual PC/Phone Web App (checkpoint='{engine.checkpoint_loaded}')...")
     demo.launch(share=True, debug=True)
 
 
